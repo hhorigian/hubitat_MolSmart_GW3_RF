@@ -12,10 +12,11 @@
  *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
  *  for the specific language governing permissions and limitations under the License.
  *
+ *         v.1.0 Initial Version 
  */
 
 definition(
-    name: "MolSmart GW3-RF App ",
+    name: "MolSmart - GW3-RF",
     namespace: "TRATO",
     author: "VH",
     description: "MolSmart GW3-RF para Hubitat",
@@ -76,7 +77,7 @@ def initialize() {
 	    logDebug "initialize(): adding driver = " + contactName
         
         def contactDev = getChildDevice(contactName)
-	    if(!contactDev) contactDev = addChildDevice("TRATO", "MolSmart GW3 - RF", contactName, null, [name: "MolSmGW3 " + Integer.toString(i), inputNumber: thisName])
+	    if(!contactDev) contactDev = addChildDevice("TRATO", "MolSmart - GW3 - RF", contactName, null, [name: "MolSmGW3 " + Integer.toString(i), inputNumber: thisName])
 
     
     }

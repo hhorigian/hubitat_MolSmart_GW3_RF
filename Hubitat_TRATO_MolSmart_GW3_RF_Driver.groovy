@@ -18,7 +18,7 @@
  */
 
 metadata {
-  definition (name: "MolSmart GW3 - RF", namespace: "TRATO", author: "VH", vid: "generic-contact") {
+  definition (name: "MolSmart - GW3 - RF", namespace: "TRATO", author: "VH", vid: "generic-contact") {
     capability "Contact Sensor"
     capability "Sensor"
     capability "Switch"  
