@@ -23,5 +23,5 @@ O Botão = 3, é para Baixar <br>
 <br>
 Agora é só testar desde o Device, na parte superior usando o "PUSH" e mandar 1, 2 ou 3 no PUSH,  ou adicionar o novo DEVICE no Dashboard. No caso do dashboard, precisa adicionar ele como tipo "Button" e adicionar ele 3 vezes, cada uma com o numero de botão para accionar com PUSH. No final vão aparecer 3 botões no dashboard. 
 <br>
-<img src="https://imgbox.com/ucoRPeMO">
+<img src="https://images2.imgbox.com/f3/d1/ucoRPeMO_o.png">
 
