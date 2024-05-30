@@ -3,25 +3,14 @@
  "author":"VH",
  "version":"1.0",
  "minimumHEVersion":"2.3.7.100",
- "dateReleased":"2024-05-18",
- "releaseNotes":"first version pushed to HPM",
- "apps": [
-  {
-     "id":"955e7053-da27-4a5f-969f-034eaf734600",
-     "name":"MolSmart GW3-RF App ",
-     "namespace":"TRATO",
-     "location":"https://raw.githubusercontent.com/hhorigian/hubitat_MolSmart_GW3_RF/main/Hubitat_TRATO_MolSmart_GW3_RF_App.groovy",
-     "required":true,
-     "oauth":false,
-     "primary":true
-  }
-  ],
+ "dateReleased":"2024-05-30",
+ "releaseNotes":"Nova Versão - Só arquivo Driver.",
  "drivers": [
   {
      "id":"809c9a02-4100-42b5-b577-39711f705b25",
      "name":"MolSmart GW3 - RF",
      "namespace":"TRATO",
-     "location":"https://raw.githubusercontent.com/hhorigian/hubitat_MolSmart_GW3_RF/main/Hubitat_TRATO_MolSmart_GW3_RF_Driver.groovy",
+     "location":"https://raw.githubusercontent.com/hhorigian/hubitat_MolSmart_GW3_RF/main/Hubitat_TRATO_MolSmart_GW3_RF_Driver_v2.groovy",
      "required":true
   }
   ]
