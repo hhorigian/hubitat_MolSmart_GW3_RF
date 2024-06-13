@@ -1,10 +1,10 @@
 {
  "packageName":"MolSmart GW3-RF",
  "author":"VH",
- "version":"1.0",
+ "version":"1.1",
  "minimumHEVersion":"2.3.7.100",
  "dateReleased":"2024-05-30",
- "releaseNotes":"Nova Versão - Só arquivo Driver.",
+ "releaseNotes":"Added User Manual Link ",
  "drivers": [
   {
      "id":"809c9a02-4100-42b5-b577-39711f705b25",
