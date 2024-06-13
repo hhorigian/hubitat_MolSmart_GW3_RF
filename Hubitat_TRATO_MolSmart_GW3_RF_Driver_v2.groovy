@@ -15,8 +15,10 @@
  *
  *
  *   +++  Versão para enviar Códigos SENDIR Diretamente no botão ++++
- */
-
+ *        1.0
+ *        1.1 - 13/06/2024 - Added User Manual Link 
+ *
+*/
 metadata {
   definition (name: "MolSmart - GW3 - RF", namespace: "TRATO", author: "VH", vid: "generic-contact") {
     capability "Switch"  
@@ -31,12 +33,26 @@ metadata {
       
   }
 
+
+    import groovy.transform.Field
+    @Field static final String DRIVER = "by TRATO"
+    @Field static final String USER_GUIDE = "https://github.com/hhorigian/hubitat_MolSmart_GW3_RF"
+
+
+    String fmtHelpInfo(String str) {
+    String prefLink = "<a href='${USER_GUIDE}' target='_blank'>${str}<br><div style='font-size: 70%;'>${DRIVER}</div></a>"
+    return "<div style='font-size: 160%; font-style: bold; padding: 2px 0px; text-align: center;'>${prefLink}</div>"
+    }
+
+
+
   preferences {
         input name: "molIPAddress", type: "text", title: "MolSmart IP",   required: true, defaultValue: "192.168.1.100" 
     	input name: "serialNum", title:"N Serie (Etiqueta GW3)", type: "string", required: true
 	    input name: "verifyCode", title:"Verify code (Etiqueta GW3)", type: "string", required: true
     	input name: "cId", title:"Control ID (pego no idoor)", type: "string", required: true  
     	//input name: "rcId", title:"RCID (51=RF)", type: "string", required: false, defaultValue: "51"  
+        input name: "UserGuide", type: "hidden", title: fmtHelpInfo("Manual do Driver")       
         input name: "logEnable", type: "bool", title: "Enable debug logging", defaultValue: false      
   }   
 
