@@ -17,15 +17,22 @@
  *   +++  Versão para enviar Códigos SENDIR Diretamente no botão ++++
  *        1.0
  *        1.1 - 13/06/2024 - Added User Manual Link 
+ *        1.2 - 29/09/2025 - Changed to ASYNC Http method  
+
  *
 */
 metadata {
   definition (name: "MolSmart - GW3 - RF", namespace: "TRATO", author: "VH", vid: "generic-contact") {
-    capability "Switch"  
+//    capability "Switch"  
     capability "Contact Sensor"
     capability "Sensor"
-    capability "PushableButton"      
+    capability "PushableButton"    
+	capability "WindowBlind"
 
+
+	command "Up"
+    command "Down"
+    command "Stop"
 	attribute "currentstatus", "string"
       
 
@@ -88,20 +95,45 @@ def updated()
     sendEvent(name:"numberOfButtons", value:4)    
     log.debug "updated()"
     AtualizaDadosGW3()       
+	if (logEnable) runIn(1800,logsOff)
 
     
 }
 
+def open(){
+    EnviaComando(1)   
+}
+
+def Up(){
+    EnviaComando(1)
+
+}
+
+def stop(){
+    EnviaComando(2)
+
+}
+
+
+def close(){
+    EnviaComando(3)
+}
+
+def Down(){
+    EnviaComando(3)
+}
+
+def Stop(){
+    EnviaComando(2)
+}
 
 
 def on() {
-     //sendEvent(name: "switch", value: "on", isStateChange: true)
-     
+    EnviaComando(1)     
 }
 
 def off() {
-     //sendEvent(name: "switch", value: "off", isStateChange: true)
-     
+    EnviaComando(3)     
 }
 
 def push(number) {
@@ -112,65 +144,90 @@ def push(number) {
 }
 
 
-def EnviaComando(buttonnumber) {
-    
-    def URI = "http://" + state.currentip + "/api/device/deviceDetails/smartHomeAutoHttpControl?serialNum=" + state.serialNum + "&verifyCode="  + state.verifyCode + "&cId=" + state.cId + "&state=" + buttonnumber + "&rcId=" + state.rcId        
-    httpPOSTExec(URI)
-    log.info "HTTP" +  URI 
-    
-    switch(buttonnumber)
-    {
-        case "1":
-            tempStatus = "up"
-            break
-        case "2":
-            tempStatus = "stop"
-            break
-        case "3":
-            tempStatus = "down"
-            break
-        case "4":
-            tempStatus = "paused"
-            break
-    }        
-    sendEvent(name: "status", value: tempStatus)
-    sendEvent(name: "curentstatus", value: tempStatus)    
-    
+private String buildFullUrl(button) {
+    def ip   = settings.molIPAddress
+    def sn   = settings.serialNum
+    def vc   = settings.verifyCode
+    def cid  = settings.cId
+    def rcid = (settings.rcId ?: "51")
+    // IMPORTANT: we deliberately do NOT URL-encode 'pw' here
+    return "http://${ip}/api/device/deviceDetails/smartHomeAutoHttpControl" +
+           "?serialNum=${sn}&verifyCode=${vc}&cId=${cid}&state=${button}&rcId=${rcid}"
     
 }
 
 
 
-def httpPOSTExec(URI)
-{
-    
-    try
-    {
-        getString = URI
-        segundo = ""
-        httpPost(getString.replaceAll(' ', '%20'),segundo,  )
-        { resp ->
-            if (resp.data)
-            {
-                        log.info "Response " + resp.data 
-            }
+def EnviaComando(button) {
+    //if (!pw) return
+	
+    settings.timeoutSec  = 7    
+    String fullUrl = buildFullUrl(button)
+    log.info "FullURL = " + fullUrl
+
+    // params: give only a 'uri' so Hubitat won't rebuild/encode the query
+    Map params = [ uri: fullUrl, timeout: (settings.timeoutSec ?: 7) as int ]
+    log.info "Params = " + params
+	
+        try {
+            asynchttpPost('gw3PostCallback', params, [cmd: button])
+             	switch(buttonnumber)
+                {
+                    case "1":
+                        tempStatus = "up"
+                        break
+                    case "2":
+                        tempStatus = "stop"
+                        break
+                    case "3":
+                        tempStatus = "down"
+                        break
+                    case "4":
+                        tempStatus = "paused"
+                        break
+                }        
+                sendEvent(name: "status", value: tempStatus)
+                sendEvent(name: "curentstatus", value: tempStatus)    
+        } catch (e) {
+            log.warn "${device.displayName} Async POST scheduling failed: ${e.message}"
+    }
+      
+ 
+}
+
+void gw3PostCallback(resp, data) {
+    String cmd = data?.cmd
+    try {
+        if (resp?.status in 200..299) {
+            logDebug "POST OK (async) cmd=${cmd} status=${resp?.status}"
+             state.ultimamensagem =  "Resposta OK"
+        } else {
+            logWarn "POST error (async) status=${resp?.status} cmd=${cmd}"
+             state.ultimamensagem =  "Erro no envio do comando"
         }
+    } catch (e) {
+        logWarn "Async callback exception: ${e.message} (cmd=${cmd})"
+        state.errormessage = e.message
     }
-                            
-
-    catch (Exception e)
-    {
-        logDebug("httpPostExec() failed: ${e.message}")
-    }
-    
 }
 
 
-//DEBUG
-private logDebug(msg) {
-  if (settings?.debugOutput || settings?.debugOutput == null) {
-    log.debug "$msg"
-  }
+
+    
+ 
+
+
+private logInfo(msg)  { if (settings?.txtEnable   != false) log.info  "${device.displayName} ${msg}" }
+private logDebug(msg) { if (settings?.debugOutput == true)  log.debug "${device.displayName} ${msg}" }
+private logWarn(msg)  { log.warn "${device.displayName} ${msg}" }
+
+
+def logsOff() {
+    log.warn 'logging disabled...'
+    device.updateSetting('logInfo', [value:'false', type:'bool'])
+    device.updateSetting('logWarn', [value:'false', type:'bool'])
+    device.updateSetting('logDebug', [value:'false', type:'bool'])
+    device.updateSetting('logTrace', [value:'false', type:'bool'])
 }
 
 
