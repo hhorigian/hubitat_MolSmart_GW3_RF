@@ -26,3 +26,14 @@ Agora é só testar desde o Device, na parte superior usando o "PUSH" e mandar 1
 <img src="https://images2.imgbox.com/f3/d1/ucoRPeMO_o.png">
 <br>
 <img src="https://images2.imgbox.com/a0/3f/joOpkMgW_o.png">
+
+**UPDATE
+**
+A versão 1.3, agora permite usar a cortina como tipo "Slider", usando um Tile de tipo "Shade". 
+Precisa configurar dentro do driver os tempos de abertura e fechamento da janela, para que seja calculado certo os valores e tempos. 
+
+<img width="1515" height="624" alt="image" src="https://github.com/user-attachments/assets/e36014bd-168a-4406-9c04-609139339f30" />
+
+
+<img width="996" height="419" alt="image" src="https://github.com/user-attachments/assets/2c2dc873-6047-4d55-837c-2cf3db34b0c5" />
+
