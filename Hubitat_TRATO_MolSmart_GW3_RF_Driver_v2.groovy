@@ -89,6 +89,16 @@ def updated() {
   if (logEnable) runIn(1800, logsOff)
 }
 
+
+def push(number) {
+    sendEvent(name:"pushed", value:number, isStateChange: true)
+    log.info "Enviado o botão " + number  
+    EnviaComando(number)
+    
+    
+}
+
+
 private initialize() {
   unschedule()
   state.currentip   = settings.molIPAddress
