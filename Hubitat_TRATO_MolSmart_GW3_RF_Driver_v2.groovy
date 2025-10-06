@@ -31,7 +31,7 @@
 import groovy.transform.Field
 
 metadata {
-  definition (name: "MolSmart - GW3 - RF (Shades c/ Slider)", namespace: "TRATO", author: "VH", vid: "generic-contact") {
+  definition (name: "MolSmart - GW3 - RF", namespace: "TRATO", author: "VH", vid: "generic-contact") {
     capability "Sensor"
     capability "Actuator"
 
