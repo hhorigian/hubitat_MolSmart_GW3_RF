@@ -87,7 +87,7 @@ metadata {
 
     // === NOVO: Health Check ===
     input name: "enableHealthCheck", type: "bool",   title: "Ativar verificação de online (HTTP /info)", defaultValue: true
-    input name: "healthCheckMins",   type: "number", title: "Intervalo do health check (min)", defaultValue: 5, range: "1..1440"
+    input name: "healthCheckMins",   type: "number", title: "Intervalo do health check (min)", defaultValue: 30, range: "1..1440"
 
   }
 }
