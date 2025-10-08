@@ -19,28 +19,31 @@
  *  Use o slider — o driver envia subir/descer, espera o tempo calculado e manda Parar sozinho.
  *
  *
- *   +++  Versão para enviar Códigos SENDIR Diretamente no botão ++++
+ *   +++  Versão para enviar RF ++++
  *        1.0
  *        1.1 - 13/06/2024 - Added User Manual Link 
  *        1.2 - 29/09/2025 - Changed to ASYNC Http method  
  *        1.3 - 05/10/2025 - Added Sliding possibility
+ *        1.4 - 07/10/2025 - Added HTTP Check for Online/Offline Status of GW3. Added Version attribute to show in device. 
  *  
  */
 
 
 import groovy.transform.Field
 
+@Field static final List<String> ONLINE_ENUM = ["online","offline","unknown"]
+
 metadata {
   definition (name: "MolSmart - GW3 - RF", namespace: "TRATO", author: "VH", vid: "generic-contact") {
     capability "Sensor"
     capability "Actuator"
 
-    // Mantidos do driver original (não retirar para evitar quebra de dashboards/automations existentes)
+    // Mantidos do driver original (não retirar)
     capability "Contact Sensor"
     capability "PushableButton"
-    capability "WindowBlind"               // legado / compat
+    capability "WindowBlind"
 
-    // Adicionados para o slider de cortina (Hubitat Dashboard Shade)
+    // Adicionados para o slider de cortina (mantidos do arquivo enviado)
     capability "Window Shade"              // open, close, pause/stop, setPosition, start/stopPositionChange
 
     // Comandos legados (mantidos)
@@ -48,11 +51,22 @@ metadata {
     command "Down"
     command "Stop"
 
-    // Atributos auxiliares
-    attribute "currentstatus", "string"    // legado
-    attribute "status", "string"           // legado
-    attribute "position", "NUMBER"         // 0..100 (para o tile Shade)
+    // NOVOS comandos (sob demanda)
+    command "healthCheckNow"
+
+    // Atributos auxiliares (mantidos)
+    attribute "currentstatus", "string"
+    attribute "status", "string"
+    attribute "position", "NUMBER"
     attribute "moving", "ENUM", ["up","down","stopped"]
+
+    // NOVOS atributos de saúde/conectividade
+    attribute "gw3Online", "ENUM", ONLINE_ENUM
+    attribute "lastHealthAt", "STRING"
+    attribute "healthLatencyMs", "NUMBER"
+
+    // NOVO: versão do GW3 (6 caracteres após "Version: ")
+    attribute "gw3Version", "STRING"
   }
 
   preferences {
@@ -61,16 +75,20 @@ metadata {
     input name: "serialNum",    type: "string", title: "N Serie (Etiqueta GW3)",       required: true
     input name: "verifyCode",   type: "string", title: "Verify code (Etiqueta GW3)",   required: true
     input name: "cId",          type: "string", title: "Control ID (pego no iDoor)",   required: true
-    //input name: "rcId",       type: "string", title: "RCID (51=RF)",                  required: false, defaultValue: "51"
     input name: "logEnable",    type: "bool",   title: "Enable debug logging",         defaultValue: false
 
-    // === Temporização/estimativa para slider ===
+    // === Temporização/estimativa para slider (mantidos) ===
     input name: "openTimeMs",   type: "number", title: "Tempo para ABRIR 0→100 (ms)",  defaultValue: 12000, required: true
     input name: "closeTimeMs",  type: "number", title: "Tempo para FECHAR 100→0 (ms)", defaultValue: 12000, required: true
     input name: "settleMs",     type: "number", title: "Tempo extra após PARAR (ms)",  defaultValue: 150,   required: true
     input name: "tickMs",       type: "number", title: "Intervalo de atualização (ms)",defaultValue: 400,   required: true
     input name: "tolerance",    type: "number", title: "Tolerância de posição (%)",    defaultValue: 3,     required: true
     input name: "invertOpenClose", type: "bool", title: "Inverter sentido (Open/Close)", defaultValue: false
+
+    // === NOVO: Health Check ===
+    input name: "enableHealthCheck", type: "bool",   title: "Ativar verificação de online (HTTP /info)", defaultValue: true
+    input name: "healthCheckMins",   type: "number", title: "Intervalo do health check (min)", defaultValue: 5, range: "1..1440"
+
   }
 }
 
@@ -79,25 +97,19 @@ def installed() {
   sendEvent(name:"numberOfButtons", value:4)
   sendEvent(name:"status", value:"stop")
   state.rcId = 51
+  // Atributos novos default
+  sendEvent(name:"gw3Online", value:"unknown")
   initialize()
 }
 
 def updated() {
   sendEvent(name:"numberOfButtons", value:4)
   state.rcId = 51
+  // Garante atributo
+  if (!device.currentValue("gw3Online")) sendEvent(name:"gw3Online", value:"unknown")
   initialize()
   if (logEnable) runIn(1800, logsOff)
 }
-
-
-def push(number) {
-    sendEvent(name:"pushed", value:number, isStateChange: true)
-    log.info "Enviado o botão " + number  
-    EnviaComando(number)
-    
-    
-}
-
 
 private initialize() {
   unschedule()
@@ -113,6 +125,9 @@ private initialize() {
   sendShadeEventForPos(state.lastKnownPos as int)
   sendEvent(name:"moving", value:"stopped", isStateChange:true)
   if (logEnable) log.debug "Init -> ip=${state.currentip} sn=${state.serialNum} cId=${state.cId} pos=${state.lastKnownPos}"
+
+  // Agenda health check se habilitado
+  if (enableHealthCheck) scheduleHealth()
 }
 
 /* ======================= Comandos Legados (mantidos) ======================= */
@@ -120,10 +135,10 @@ def Up()   { EnviaComando(1); trackStart("up") }
 def Down() { EnviaComando(3); trackStart("down") }
 def Stop() { EnviaComando(2); finalizeStop(estimateNow()) }
 
-/* ======================= Capabilities de Shade ======================= */
+/* ======================= Capabilities de Shade (mantidos) ======================= */
 def open()                { moveTo(100) }
 def close()               { moveTo(0) }
-def pause()               { stopPositionChange() }   // alias para compat
+def pause()               { stopPositionChange() }
 def stopPositionChange()  {
   if (state.moving in ["up","down"]) {
     EnviaComando(2)
@@ -134,14 +149,13 @@ def stopPositionChange()  {
   }
 }
 def startPositionChange(direction) {
-  // direction: "opening"/"open"/"up"  ou  "closing"/"close"/"down"
   def dir = (direction in ["open","opening","up"]) ? "up" : "down"
   EnviaComando(dir == "up" ? 1 : 3)
   trackStart(dir)
 }
 def setPosition(Number pos) { moveTo(clamp((pos as int), 0, 100)) }
 
-/* ======================= Lógica de Tempo/Slider ======================= */
+/* ======================= Lógica de Tempo/Slider (mantidos) ======================= */
 private moveTo(Integer target) {
   Integer current = estimateNow()
   Integer tol = (tolerance ?: 3) as int
@@ -150,21 +164,15 @@ private moveTo(Integer target) {
     finalizeStop(target)
     return
   }
-
   String dir = (target > current) ? "up" : "down"
   Integer totalMs = (dir == "up" ? (openTimeMs ?: 12000) : (closeTimeMs ?: 12000)) as int
   BigDecimal fraction = (Math.abs(target - current) / 100.0)
   Integer runMs = Math.max(50, (int)Math.round(totalMs * fraction))
-
   if (logEnable) log.debug "moveTo: current=${current}, target=${target}, dir=${dir}, runMs=${runMs}"
-
-  // Envia mover e agenda parar
-  // Primeiro, assegura que o tile está na posição atual (evita pular para ~100%)
-  sendPositionNow(current)
+  sendPositionNow(current) // evita salto visual
   EnviaComando(dir == "up" ? 1 : 3)
   trackStart(dir)
   state.targetPos = target
-
   state.pendingStop = true
   runIn(calcSec(runMs), "onMoveTimeout")
 }
@@ -175,7 +183,6 @@ private trackStart(String dir) {
   state.moveStartPos   = estimateNow()
   sendEvent(name:"moving", value: dir, isStateChange:true)
   sendEvent(name:"windowShade", value: (dir == "up" ? "opening" : "closing"), isStateChange:true)
-  // Envia posição inicial para evitar "salto" visual no dashboard (forçado)
   sendPositionNow(state.moveStartPos as int)
   scheduleTick()
 }
@@ -195,16 +202,13 @@ private scheduleTick() {
 private Integer estimateNow() {
   if (!(state.moving in ["up","down"])) return (state.lastKnownPos ?: 0) as int
   if (!state.moveStartEpoch || state.moveStartPos == null) return (state.lastKnownPos ?: 0) as int
-
   Long elapsed = now() - (state.moveStartEpoch as Long)
   Integer totalMs = (state.moving == "up" ? (openTimeMs ?: 12000) : (closeTimeMs ?: 12000)) as int
   if (totalMs <= 0) return (state.lastKnownPos ?: 0) as int
-
   BigDecimal deltaPct = (elapsed / (totalMs as BigDecimal)) * 100.0
   Integer est = (state.moving == "up")
       ? Math.min(100, Math.round((state.moveStartPos as int) + deltaPct) as int)
       : Math.max(0,   Math.round((state.moveStartPos as int) - deltaPct) as int)
-
   if (state.targetPos != null) {
     Integer tgt = state.targetPos as int
     if (state.moving == "up")   est = Math.min(est, tgt)
@@ -230,7 +234,6 @@ private sendPositionNow(Integer pos) {
   sendShadeEventForPos(pos)
   if (logEnable) log.debug "sendPositionNow -> pos=${pos}"
 }
-
 
 private finalizeStop(Integer finalPos) {
   unschedule("tick")
@@ -264,13 +267,11 @@ def EnviaComando(button) {
   String fullUrl = buildFullUrl(button)
   if (logEnable) log.info "FullURL = ${fullUrl}"
   Map params = [ uri: fullUrl, timeout: (settings.timeoutSec ?: 7) as int ]
-
   try {
     asynchttpPost('gw3PostCallback', params, [cmd: button])
-    // Atualiza atributos legados rapidamente (sem esperar resposta)
     String tempStatus = (button == 1) ? "up" : (button == 2 ? "stop" : (button == 3 ? "down" : "paused"))
     sendEvent(name: "status", value: tempStatus)
-    sendEvent(name: "currentstatus", value: tempStatus) // legado
+    sendEvent(name: "currentstatus", value: tempStatus)
   } catch (e) {
     log.warn "${device.displayName} Async POST scheduling failed: ${e.message}"
   }
@@ -292,22 +293,18 @@ void gw3PostCallback(resp, data) {
   }
 }
 
-
 /* ======= Callbacks para agendamento em segundos (compat sem runInMillis) ======= */
 def onMoveTimeout() {
-  // Dispara comando de PARAR após o tempo calculado e agenda o settle
   EnviaComando(2)
   runIn(calcSec((settleMs ?: 150) as int), "onSettleTimeout")
 }
 
 def onSettleTimeout() {
-  // Finaliza no target desejado (state.targetPos)
   Integer tgt = (state.targetPos != null) ? (state.targetPos as Integer) : estimateNow()
   finalizeStop(tgt)
 }
 
 def onManualStopSettle() {
-  // Stop manual via stopPositionChange()
   finalizeStop(estimateNow())
 }
 
@@ -316,6 +313,90 @@ private Integer calcSec(Integer ms) {
   return Math.max(1, s)
 }
 
+/* ======================= HEALTH CHECK HTTP (/info) ======================= */
+
+private void scheduleHealth() {
+  Integer mins = Math.max(1, (healthCheckMins ?: 5) as int)
+  unschedule("healthPoll")
+  // Primeiro dispara agora, depois agenda em minutos
+  runIn(2, "healthPoll")
+  runEveryXMinutes(mins, "healthPoll")
+}
+
+private void runEveryXMinutes(Integer mins, String handler) {
+  // Helper para intervalos arbitrários (Hubitat tem runEvery5/10/30, aqui simulamos)
+  // Reagenda com runIn a cada ciclo
+  state.healthEveryMins = mins
+  runIn( mins * 60, "healthReschedule" )
+}
+
+def healthReschedule() {
+  Integer mins = (state.healthEveryMins ?: (healthCheckMins ?: 5)) as int
+  runIn( mins * 60, "healthReschedule" )
+  healthPoll()
+}
+
+def healthPoll() {
+  if (!enableHealthCheck) return
+  String ip = (settings.molIPAddress ?: "").trim()
+  if (!ip) return
+  String uri = "http://${ip}/info"
+  Long started = now()
+  Map params = [ uri: uri, timeout: 5 ]
+  try {
+    asynchttpGet('healthPollCB', params, [t0: started, uri: uri])
+  } catch (e) {
+    if (logEnable) log.warn "healthPoll schedule failed: ${e.message}"
+  }
+}
+
+void healthPollCB(resp, data) {
+  String body = ""
+  Integer st = null
+  try {
+    st = resp?.status as Integer
+    body = resp?.getData() ?: ""
+  } catch (ignored) { }
+  String stamp = new Date().format("yyyy-MM-dd HH:mm:ss")
+  Long t0 = (data?.t0 ?: now())
+  Long dt = (now() - t0)
+
+  if (st && st >= 200 && st <= 299 && body?.toString()?.contains("MolSmart Device Info")) {
+    // Online
+    if (device.currentValue("gw3Online") != "online") sendEvent(name:"gw3Online", value:"online", isStateChange:true)
+    sendEvent(name:"healthLatencyMs", value: dt as Long)
+    sendEvent(name:"lastHealthAt", value: stamp)
+
+    // === NOVO: extrair "Version: X" e publicar 6 chars em gw3Version ===
+    try {
+      String txt = body?.toString() ?: ""
+      // procura linha iniciando com "Version:"
+      def m = (txt =~ /(?im)^\s*Version:\s*([^\r\n]+)/)
+      if (m.find()) {
+        String verFull = (m.group(1) ?: "").trim()
+        String ver6 = (verFull.length() >= 6) ? verFull.substring(0, 6) : verFull
+        if (ver6) {
+          sendEvent(name:"gw3Version", value: ver6, isStateChange:true)
+          if (logEnable) log.debug "Versão detectada: '${verFull}' -> gw3Version='${ver6}'"
+        }
+      } else if (logEnable) {
+        log.debug "Versão não encontrada no corpo do /info."
+      }
+    } catch (e) {
+      if (logEnable) log.warn "Falha ao extrair versão: ${e.message}"
+    }
+
+    if (logEnable) log.debug "Health OK in ${dt} ms"
+  } else {
+    // Offline
+    if (device.currentValue("gw3Online") != "offline") sendEvent(name:"gw3Online", value:"offline", isStateChange:true)
+    sendEvent(name:"healthLatencyMs", value: null)
+    sendEvent(name:"lastHealthAt", value: stamp)
+    if (logEnable) log.warn "Health FAIL (status=${st})"
+  }
+}
+
+def healthCheckNow() { healthPoll() }
 
 /* ======================= Util ======================= */
 private Integer clamp(int v, int lo, int hi) { Math.max(lo, Math.min(hi, v)) }
@@ -324,3 +405,5 @@ def logsOff() {
   log.warn 'logging disabled...'
   device.updateSetting('logEnable', [value:'false', type:'bool'])
 }
+
+
