@@ -25,6 +25,7 @@
  *        1.2 - 29/09/2025 - Changed to ASYNC Http method  
  *        1.3 - 05/10/2025 - Added Sliding possibility
  *        1.4 - 07/10/2025 - Added HTTP Check for Online/Offline Status of GW3. Added Version attribute to show in device. 
+ *        1.5 - 10/10/2025 - Fixed Push Button bug.
  *  
  */
 
@@ -258,9 +259,19 @@ private String buildFullUrl(button) {
   def vc   = settings.verifyCode
   def cid  = settings.cId
   def rcid = (settings.rcId ?: "51")
+
+  
   return "http://${ip}/api/device/deviceDetails/smartHomeAutoHttpControl" +
          "?serialNum=${sn}&verifyCode=${vc}&cId=${cid}&state=${button}&rcId=${rcid}"
 }
+
+def push(number) {
+    sendEvent(name:"pushed", value:number, isStateChange: true)
+    log.info "Enviado o botão " + number  
+    EnviaComando(number)
+    
+}
+
 
 def EnviaComando(button) {
   settings.timeoutSec = 7
