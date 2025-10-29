@@ -1,5 +1,6 @@
 /**
  *  MolSmart GW3 Driver - RF - Cortinas, Luzes RF, Controle tudo via RF. 
+ *  (Versão estendida com CHILD BUTTONS momentâneos: Subir / Parar / Descer)
  *
  *  Copyright 2024 VH 
  *
@@ -19,16 +20,18 @@
  *  Use o slider — o driver envia subir/descer, espera o tempo calculado e manda Parar sozinho.
  *
  *
- *   +++  Versão para enviar RF ++++
+ *   +++  Versões ++++
  *        1.0
  *        1.1 - 13/06/2024 - Added User Manual Link 
  *        1.2 - 29/09/2025 - Changed to ASYNC Http method  
- *        1.3 - 05/10/2025 - Added Sliding possibility
+ *        1.3 - 05/10/2025 - Added Sliding possibility. Need to setup times inside preferences if used. 
  *        1.4 - 07/10/2025 - Added HTTP Check for Online/Offline Status of GW3. Added Version attribute to show in device. 
  *        1.5 - 10/10/2025 - Fixed Push Button bug.
- *  
+ *        1.6 - 25/10/2025 - **NOVO**: Child Buttons momentâneos (Subir/Parar/Descer) 
+ *                               - Preferência para criar/atualizar automaticamente ao salvar
+ *                               - Comando `recreateButtons()` para recriar e remover extras
+ *                               - Mantém slider e botões push existentes
  */
-
 
 import groovy.transform.Field
 
@@ -54,6 +57,9 @@ metadata {
 
     // NOVOS comandos (sob demanda)
     command "healthCheckNow"
+
+    // NOVO: recriar child buttons
+    command "recreateButtons"
 
     // Atributos auxiliares (mantidos)
     attribute "currentstatus", "string"
@@ -90,6 +96,8 @@ metadata {
     input name: "enableHealthCheck", type: "bool",   title: "Ativar verificação de online (HTTP /info)", defaultValue: true
     input name: "healthCheckMins",   type: "number", title: "Intervalo do health check (min)", defaultValue: 30, range: "1..1440"
 
+    // === NOVO: Child Buttons ===
+    input name: "createButtonsOnSave", type: "bool", title: "Criar/atualizar Child Buttons ao salvar", defaultValue: true
   }
 }
 
@@ -127,19 +135,28 @@ private initialize() {
   sendEvent(name:"moving", value:"stopped", isStateChange:true)
   if (logEnable) log.debug "Init -> ip=${state.currentip} sn=${state.serialNum} cId=${state.cId} pos=${state.lastKnownPos}"
 
+  // Criar/atualizar child buttons
+  if (createButtonsOnSave) createOrUpdateChildButtons(true)
+
   // Agenda health check se habilitado
   if (enableHealthCheck) scheduleHealth()
 }
 
 /* ======================= Comandos Legados (mantidos) ======================= */
 def Up()   { EnviaComando(1); trackStart("up") }
+
 def Down() { EnviaComando(3); trackStart("down") }
+
 def Stop() { EnviaComando(2); finalizeStop(estimateNow()) }
 
 /* ======================= Capabilities de Shade (mantidos) ======================= */
+
 def open()                { moveTo(100) }
+
 def close()               { moveTo(0) }
+
 def pause()               { stopPositionChange() }
+
 def stopPositionChange()  {
   if (state.moving in ["up","down"]) {
     EnviaComando(2)
@@ -149,11 +166,13 @@ def stopPositionChange()  {
     sendShadeEventForPos(state.lastKnownPos as int ?: 0)
   }
 }
+
 def startPositionChange(direction) {
   def dir = (direction in ["open","opening","up"]) ? "up" : "down"
   EnviaComando(dir == "up" ? 1 : 3)
   trackStart(dir)
 }
+
 def setPosition(Number pos) { moveTo(clamp((pos as int), 0, 100)) }
 
 /* ======================= Lógica de Tempo/Slider (mantidos) ======================= */
@@ -260,7 +279,6 @@ private String buildFullUrl(button) {
   def cid  = settings.cId
   def rcid = (settings.rcId ?: "51")
 
-  
   return "http://${ip}/api/device/deviceDetails/smartHomeAutoHttpControl" +
          "?serialNum=${sn}&verifyCode=${vc}&cId=${cid}&state=${button}&rcId=${rcid}"
 }
@@ -269,7 +287,6 @@ def push(number) {
     sendEvent(name:"pushed", value:number, isStateChange: true)
     log.info "Enviado o botão " + number  
     EnviaComando(number)
-    
 }
 
 
@@ -305,15 +322,18 @@ void gw3PostCallback(resp, data) {
 }
 
 /* ======= Callbacks para agendamento em segundos (compat sem runInMillis) ======= */
+
 def onMoveTimeout() {
   EnviaComando(2)
   runIn(calcSec((settleMs ?: 150) as int), "onSettleTimeout")
 }
 
+
 def onSettleTimeout() {
   Integer tgt = (state.targetPos != null) ? (state.targetPos as Integer) : estimateNow()
   finalizeStop(tgt)
 }
+
 
 def onManualStopSettle() {
   finalizeStop(estimateNow())
@@ -346,6 +366,7 @@ def healthReschedule() {
   runIn( mins * 60, "healthReschedule" )
   healthPoll()
 }
+
 
 def healthPoll() {
   if (!enableHealthCheck) return
@@ -407,14 +428,89 @@ void healthPollCB(resp, data) {
   }
 }
 
+
 def healthCheckNow() { healthPoll() }
+
+/* ======================= CHILD BUTTONS (Subir / Parar / Descer) ======================= */
+
+@Field static final List<Map> CHILD_BUTTON_DEFS = [
+  [label:"Cortina - Subir",  cmd:1],
+  [label:"Cortina - Parar",  cmd:2],
+  [label:"Cortina - Descer", cmd:3]
+]
+
+/**
+ * Cria/atualiza 3 children do tipo "Generic Component Switch".
+ * Ao ligar (componentOn), o parent envia o comando RF correspondente e volta o child para OFF (momentâneo).
+ */
+
+def recreateButtons() { createOrUpdateChildButtons(true) }
+
+private void createOrUpdateChildButtons(Boolean removeExtras=false) {
+  if (logEnable) log.debug "Criando/atualizando Child Buttons..."
+  Set<String> keep = []
+  CHILD_BUTTON_DEFS.eachWithIndex { m, idx ->
+    String dni = "${device.id}-BTN-${idx+1}"
+    def child = getChildDevice(dni)
+    if (!child) {
+      child = addChildDevice("hubitat", "Generic Component Switch", dni,
+        [name: m.label, label: m.label, isComponent: true])
+      if (logEnable) log.debug "Child criado: ${child?.displayName}"
+    } else {
+      if (child.label != (m.label as String)) child.setLabel(m.label as String)
+    }
+    child.updateDataValue("cmd", (m.cmd as Integer).toString())
+    // Garantir estado OFF visual
+    try { child.parse([[name:"switch", value:"off"]]) } catch (ignored) {}
+    keep << dni
+  }
+
+  if (removeExtras) {
+    childDevices?.findAll { !(it.deviceNetworkId in keep) }?.each {
+      if (logEnable) log.warn "Removendo child extra: ${it.displayName}"
+      deleteChildDevice(it.deviceNetworkId)
+    }
+  }
+}
+
+// Callbacks do Generic Component Switch
+
+def componentOn(cd)  { handleChildPress(cd) }
+
+def componentOff(cd) { /* ignorar */ }
+
+private void handleChildPress(cd) {
+  String cmdStr = cd.getDataValue("cmd") ?: ""
+  if (!cmdStr) {
+    log.warn "Child ${cd.displayName} sem cmd."
+    return
+  }
+  Integer cmd = cmdStr as Integer
+  if (logEnable) log.info "Child '${cd.displayName}' acionado -> cmd=${cmd}"
+
+  // Dispara comando mantendo compatibilidade com o driver
+  EnviaComando(cmd)
+  if (cmd == 1) trackStart("up")
+  else if (cmd == 3) trackStart("down")
+  else finalizeStop(estimateNow())
+
+  // Volta para OFF como momentary
+  runIn(1, "childOffSafe", [data:[dni: cd.deviceNetworkId]])
+}
+
+
+def childOffSafe(data) {
+  def child = getChildDevice(data?.dni as String)
+  if (child) {
+    try { child.parse([[name:"switch", value:"off"]]) } catch (ignored) {}
+  }
+}
 
 /* ======================= Util ======================= */
 private Integer clamp(int v, int lo, int hi) { Math.max(lo, Math.min(hi, v)) }
+
 
 def logsOff() {
   log.warn 'logging disabled...'
   device.updateSetting('logEnable', [value:'false', type:'bool'])
 }
-
-
