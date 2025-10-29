@@ -1,10 +1,10 @@
 {
  "packageName":"MolSmart GW3-RF",
  "author":"VH",
- "version":"1.5",
+ "version":"1.6",
  "minimumHEVersion":"2.3.7.100",
- "dateReleased":"2025-10-05",
- "releaseNotes":"1.5 - 10/10/2025 - Fixed Push Button bug.",
+ "dateReleased":"2025-10-29",
+ "releaseNotes":"1.6 - 29/10/2025 - Added functionality for momentary child buttons and improved button management.",
  "drivers": [
   {
      "id":"809c9a02-4100-42b5-b577-39711f705b25",
